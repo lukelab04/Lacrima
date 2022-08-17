@@ -1,0 +1,133 @@
+
+
+Basic Types
+    Empty
+    Number
+    Boolean
+    String
+    Function
+
+
+Registers
+    There are 8 general-purpose registers.
+    R0 is always 0, and set to an Empty type.
+    R1 - R3 are for general arithmetic.
+
+    PC: Program counter
+
+
+Data Storage
+
+    The VM contains 2 main storage structures: the Value Stack and Frame Stack.
+
+    Value Stack
+        The value stack can be used for operations (regular push and pop).
+        All global variables are also allocated on the value stack.
+
+    Frame Stack
+        The frame stack saves the position of the current frame.
+        If a function is called, a frame will be pushed, and ALL local variables will be indexed based on that offset.
+        Once a frame is popped, the stack is cleared down to the location of that frame. (Restored to how it was.)
+
+        There is no inherent handling of scope, but the code generator should be able to reallocate
+        variables in spots taken by variables from previous scopes, removing any need for manual cleanup.
+
+
+    Stack-allocated variables are copied unless explicitly passed by reference.
+    For example, when setting one variable equal to another, the RHS will be copied into the LHS. They will not refer to the same memory location.
+
+    When assigning variables, the LHS will be treated as an address. For example:
+        a = b           //Put b in 0x1; Get location of a; Put 0x1 in location of a;
+        a = b + 1;      //Put b in 0x1; Add 1 to 0x1; Get location of a; Put 0x1 in location of a;
+        a[b + 1] = 10;  //Put b in 0x1; Add 1 to 0x1; Get location of a; Add 0x1 to location of a; Put 10 in that location;
+
+
+    The third structure encountered is the Const Value Table.
+    The const value table holds Values created during compilation, and can be indexed into by the VM.
+    This is the primary way of setting variables equal to literal values.
+
+
+
+Functions
+    Functions can only access global variables and variables passed to them as arguments. Any other variable is inaccessible.
+
+    The frame stack for a function is as follows:
+        Arguments 0..n
+        ...
+
+    When calling a function, the bytecode should:
+        Create a new stack frame
+        Push all function arguments
+        Call the function
+        Clear the stack frame
+
+
+Instructions
+
+    Opcodes are saved as 32-bit unsigned integers.
+    [Opcode: 1 byte][x][y][z], xyz = 1 byte register index
+    NI stands for Next Instruction, interpreted as u32 unless otherwise specified
+
+    //Memory IO: 0x00 - 0x0F
+        Mov x, z                        0x0; Move register z to register x
+        Load x                          0x1; Move ConstTable[NI] to register x
+        LoadImm x                       0x2: Move immediate value NI as Number into register x
+
+
+    //Math: 0x10 - 0x2F
+        Add x, z                        0x10; x = x + z
+        Sub x, z                        0x11; x = x - z
+        Div x, z                        0x12; x = x / z
+        Mul x, z                        0x13: x = x * z
+        Mod x, z                        0x14: x = x % z
+
+        And x, y, z                     0x15: x = y && z
+        Or x, y, z                      0x16: x = y || z
+        Eq x, y, z                      0x17: x = y == z
+        Neq x, y, z                     0x18: x = y != z
+        Gt x, y, z                      0x19: x = y > z
+        Gte x, y, z                     0x1A: x = y >= z
+        Lt x, y, z                      0x1B: x = y < z
+        Lte x, y, z                     0x1C: x = y <= z
+        Not x, z                        0x1D: x = !z
+
+        Negate x, z                     0x1E: x = -z
+
+
+    //Jumps / Control Flow: 0x30 - 0x3F
+        IncIf0 x, z                     0x30: PC += x if z == false
+        DecIf0 x, z                     0x31: PC -= x if z == false
+        JZ, x, z                        0x32: PC = x if z == false
+        JNZ x, z                        0x33: PC = x if z != false
+        Jump x                          0x34: PC = x
+
+        Call x                          0x35: Call function at ABSOLUTE ADDRESS x
+        Return                          0x36: Return from function
+
+
+    //Stack: 0x40 - 0x4F
+        Push x                          0x40: Push x onto the stack
+        Pop x                           0x41: Pop the stack into x
+        PushFrame x                     0x42: Push a stack frame with x as the frame start addr
+        PopFrame x                      0x43: Pop a stack frame and put start addr in x
+
+        SetLocalVar, x, z               0x44: Copy z to LOCAL STACK ADDRESS in x
+        GetLocalVar, x, z               0x45: Copy data in LOCAL STACK ADDRESS z to x
+        SetGlobalVar, x, z              0x46: Copy z to GLOBAL STACK ADDRESS in x
+        GetGlobalVar, x, z              0x47: Copy data in GLOBAL ADDRESS z to x
+
+        GetStackLen, x                  0x48: Put stack length in x
+        SetStackLen, x                  0x49: Set stack length to x (delete additional items)
+
+
+
+    //Misc: 0xF0 - 0xFF
+        NoOp                            0xF0,
+        Print x                         0xF1,
+
+
+
+
+
+
+

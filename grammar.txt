@@ -1,0 +1,27 @@
+Start       :       (VarDecl | FnDecl | ExprLine)+
+
+VarDecl     :       let Identifier : Type (';' | '=' ExprLine)
+FnDecl      :       fn Identifier '('(Identifier ':' Type ,?)* ')' -> Type Block
+
+Type        :       AtomicType | Array | Structural | Algebraic | Functional | Inferred
+
+AtomicType  :       Number | String | Boolean
+Algebraic   :       Tuple
+
+Tuple       :       '(' Type* ,? ')'
+
+ControlFlow :       IfStmt | WhileStmt
+
+IfStmt      :       'if' Expr Block FollowIf
+FollowIf    :       'else' (IfStmt | Block) | Epsilon 
+
+WhileStmt   :       'while' Expr Block
+
+Block       :       '{' (VarDecl | ExprLine)* '}'
+
+ExprLine    :       Expr ';'
+Expr        :       (Prefix | ControlFlow) Postfix
+Prefix      :       UnaryOp | Identifier | Literal
+Postfix     :       Operator Expr
+
+Num         :       \d DecimalType
