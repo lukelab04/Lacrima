@@ -1,7 +1,8 @@
-Start       :       (VarDecl | FnDecl | ExprLine)+
+Start       :       (VarDecl | FnDecl | ExprLine | Extern)+
 
 VarDecl     :       let Identifier : Type (';' | '=' ExprLine)
 FnDecl      :       fn Identifier '('(Identifier ':' Type ,?)* ')' -> Type Block
+Extern      :       extern Identifier;
 
 Type        :       AtomicType | Array | Structural | Algebraic | Functional | Inferred
 

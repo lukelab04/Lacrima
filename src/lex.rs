@@ -36,8 +36,7 @@ pub enum TokenType {
     //Keywords
     Let,
     Fn,
-    Print,
-    
+    External,
 
     //Control Flow
     If,

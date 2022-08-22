@@ -1,4 +1,4 @@
-use crate::convert;
+use crate::{convert, ExternalFunctions};
 use crate::value::Value;
 
 pub struct Vm {
@@ -56,7 +56,7 @@ impl Vm {
         self.value_stack[addr + self.frame_stack.last().unwrap()].clone()
     }
 
-    pub fn run(&mut self, ins: &Vec<u32>, const_vals: &Vec<Value>) {
+    pub fn run(&mut self, ins: &Vec<u32>, const_vals: &Vec<Value>, externs: &ExternalFunctions) {
         let mut pc: usize = 0;
 
 
@@ -127,11 +127,22 @@ impl Vm {
                     let func = &self.value_stack[*convert!(num, Number) as usize];
                     //Get function at absolute address
                     let func_code = convert!(func, Function).code.clone();
-                    self.run(func_code.borrow().as_ref(), const_vals);
+                    self.run(func_code.borrow().as_ref(), const_vals, externs);
                 }
                 //Return
                 0x36 => {
                     return;
+                }
+                //ExternCall
+                0x37 => {
+                    let mut args = vec![];
+                    let arg_len = convert!(self.pop(), Number) as usize;
+                    for _ in 0..arg_len {
+                        args.push(self.pop());
+                    }
+                    args.reverse();
+                    let fname = convert!(&self.regs[x], String).as_ref().clone();
+                    externs.functions[&fname](args);
                 }
 
 

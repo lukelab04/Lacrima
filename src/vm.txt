@@ -61,6 +61,9 @@ Functions
         Call the function
         Clear the stack frame
 
+    When calling an extern function, the bytecode should simply push all arguments to the stack, and place the number of arguments in 0x1.
+    No stack frame manipulation is necessary.
+
 
 Instructions
 
@@ -103,6 +106,7 @@ Instructions
 
         Call x                          0x35: Call function at ABSOLUTE ADDRESS x
         Return                          0x36: Return from function
+        CallExtern x                    0x37: Call extern function. Function name is stored in x as string.
 
 
     //Stack: 0x40 - 0x4F
@@ -123,7 +127,6 @@ Instructions
 
     //Misc: 0xF0 - 0xFF
         NoOp                            0xF0,
-        Print x                         0xF1,
 
 
 

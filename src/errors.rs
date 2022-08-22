@@ -11,7 +11,7 @@ pub fn parse_err(message: &str, t: &Token) -> String {
 }
 
 pub fn expected_type(expected: TokenType, t: &Token) -> String {
-    format!("Error: Expected type {:?} but got `{:?}` (line {}, column {})", expected, t.token_type, t.line, t.col)
+    format!("Error: Expected type {:?} but got `{:?}` (line {}, column {})", expected, t.lexeme, t.line, t.col)
 }
 
 pub fn unexpected_end() -> String {

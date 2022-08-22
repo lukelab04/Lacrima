@@ -112,6 +112,9 @@ impl TypeChecker {
                 self.type_check(n.ty.borrow_mut().deref_mut())?;
                 self.type_check(n.body.borrow_mut().deref_mut())
             }
+            Ast::Extern(n) => {
+                self.type_check(n.stmt.borrow_mut().deref_mut())
+            }
             Ast::Type(t) => {
                 Ok(t.clone())
             },
@@ -166,10 +169,6 @@ impl TypeChecker {
             Ast::Boolean(s) => {
                 self.type_check(s.ty.as_ref().borrow_mut().deref_mut())
             }
-            Ast::Print(n) => {
-                n.ty = Rc::new(RefCell::new(Ast::Type(self.type_check(n.node.as_ref().borrow_mut().deref_mut())?)));
-                Ok(Type::EmptyType)
-            },
             Ast::Assign(n) => {
                 let t1 = self.type_check(n.left.as_ref().borrow_mut().deref_mut())?;
                 let t2 = self.type_check(n.expr.as_ref().borrow_mut().deref_mut())?;
@@ -180,22 +179,30 @@ impl TypeChecker {
                 }
             },
             Ast::Call(n) => {
-                let ty;
-                if let Type::Functional(f) = n.callee.as_ref().borrow().get_node_type() {
-                    ty = f.clone();
-                    n.ty = Rc::new(RefCell::new(Ast::Type(f.ret_type.as_ref().clone())));
+                for arg in &mut n.args {
+                    self.type_check(arg.as_ref().borrow_mut().deref_mut())?;
+                }
+
+                if let Type::External = n.callee.as_ref().borrow().get_node_type() {
+                    Ok(Type::External)
                 } else {
-                    return Err(basic_error(format!("Cannot call non-function type {}", n.ty.as_ref().borrow().get_node_type().get_type_as_str()).as_str()));
-                }
-
-                match ty.arg_type.as_ref() {
-                    Type::Algebraic(AlgebraicType::Tuple(t)) => {
-                        if n.args.len() != t.types.len() {return Err(incorrect_arg_num(t.types.len(), n.args.len(), &n.token));}
+                    let ty;
+                    if let Type::Functional(f) = n.callee.as_ref().borrow().get_node_type() {
+                        ty = f.clone();
+                        n.ty = Rc::new(RefCell::new(Ast::Type(f.ret_type.as_ref().clone())));
+                    } else {
+                        return Err(basic_error(format!("Cannot call non-function type {}", n.ty.as_ref().borrow().get_node_type().get_type_as_str()).as_str()));
                     }
-                    _ => panic!("Error in `Ast::Call` case of `type_check`. (This is a compiler bug, please report.)"),
-                }
 
-                Ok(n.ty.as_ref().borrow().get_node_type())
+                    match ty.arg_type.as_ref() {
+                        Type::Algebraic(AlgebraicType::Tuple(t)) => {
+                            if n.args.len() != t.types.len() { return Err(incorrect_arg_num(t.types.len(), n.args.len(), &n.token)); }
+                        }
+                        _ => panic!("Error in `Ast::Call` case of `type_check`. (This is a compiler bug, please report.)"),
+                    }
+
+                    Ok(n.ty.as_ref().borrow().get_node_type())
+                }
             }
             Ast::Number(n) => self.type_check(n.ty.as_ref().borrow_mut().deref_mut()),
             Ast::String(n) => self.type_check(n.ty.as_ref().borrow_mut().deref_mut()),

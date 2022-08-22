@@ -9,6 +9,7 @@ mod vm;
 mod value;
 mod types;
 
+use std::collections::HashMap;
 use lex::*;
 use parse::*;
 use symbol_table::*;
@@ -18,6 +19,18 @@ use vm::*;
 use types::*;
 use value::*;
 
+pub type LCValue = Value;
+
+pub struct ExternalFunctions {
+    pub functions: HashMap<String, fn(Vec<Value>) -> ()>
+}
+impl ExternalFunctions {
+    pub fn new() -> ExternalFunctions {ExternalFunctions {functions: HashMap::new()}}
+
+    pub fn add_fn(&mut self, name: &str, func: fn(Vec<Value>) -> ()) {
+       self.functions.insert(name.to_string(), func);
+    }
+}
 
 ///Returns a vector of 'basic words' (words that do not require more extensive patten matching, like numbers.)
 fn get_basic_words() -> Vec<(&'static str, TokenType)> {
@@ -30,7 +43,7 @@ fn get_basic_words() -> Vec<(&'static str, TokenType)> {
         ("true", AtomicType(True)), ("false", AtomicType(False)), ("bool", AtomicType(True)),
         ("auto", Inferred),
 
-        ("let", Let), ("fn", Fn), ("print", Print),
+        ("let", Let), ("fn", Fn), ("external", External),
 
         ("if", If), ("else", Else), ("while", While), ("return", Return),
 
@@ -57,8 +70,6 @@ fn init_parser(p: &mut Parser) {
     p.register_prefix(AtomicType(String), parse_str);
     p.register_prefix(LParen, parse_paren_group);
     p.register_prefix(Sub, parse_unary_operator);
-    p.register_prefix(Print, parse_print);
-
 
     p.register_postfix(Add, parse_binary_operator, Prec::Sum);
     p.register_postfix(Sub, parse_binary_operator, Prec::Sum);
@@ -101,7 +112,7 @@ pub struct Bytecode {
 ///Compile a program into bytecode.
 /// <br><br>
 /// Return `Bytecode` struct on success, otherwise `Err` containing `String` error message.
-pub fn compile(program: &str) -> Result<Bytecode, String> {
+pub fn compile(program: &str, externs: &ExternalFunctions) -> Result<Bytecode, String> {
 
     let tokens = lex::lex(&program, get_basic_words())?;
 
@@ -111,7 +122,7 @@ pub fn compile(program: &str) -> Result<Bytecode, String> {
     let mut ast = p.parse()?;
 
     let mut st = SymbolTable::new();
-    ast = st.build_table(ast)?;
+    ast = st.build_table(ast, externs)?;
 
     let mut tc = TypeChecker::new();
     tc.check_types(&mut ast)?;
@@ -128,12 +139,15 @@ pub fn compile(program: &str) -> Result<Bytecode, String> {
 
 }
 
+pub fn init_vm() -> Vm {
+    Vm::new()
+}
+
 ///Run bytecode on virtual machine.
 /// # Panics
 /// Panics on unknown opcode.
-pub fn run(bytecode: &Bytecode) {
-    let mut vm = Vm::new();
+pub fn run(vm: &mut Vm, bytecode: &Bytecode, externs: &ExternalFunctions) {
     let start = std::time::Instant::now();
-    vm.run(&bytecode.code, &bytecode.consts);
+    vm.run(&bytecode.code, &bytecode.consts, externs);
     println!("Finished in {}ms", (std::time::Instant::now() - start).as_micros());
 }

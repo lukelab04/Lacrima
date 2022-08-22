@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::ops::Deref;
 use crate::ast::*;
-use crate::{BinaryOperatorTypes, convert_node};
+use crate::{BinaryOperatorTypes, convert_node, Type, UnaryOperatorTypes};
 use crate::value::*;
 use crate::value;
 
@@ -34,6 +34,8 @@ enum Instructions {
     Lte             = 0x1C,
     Not             = 0x1D,
 
+    Negate          = 0x1E,
+
 
     //Control Flow
     IncIf0          = 0x30,
@@ -43,6 +45,7 @@ enum Instructions {
     Jump            = 0x34,
     Call            = 0x35,
     Return          = 0x36,
+    CallExtern      = 0x37,
 
     //Stack
     Push            = 0x40,
@@ -59,7 +62,6 @@ enum Instructions {
 
     //Misc
     NoOp            = 0xF0,
-    Print           = 0xF1,
 }
 
 ///Structure to organize the scope and location of variables in the program.
@@ -251,6 +253,7 @@ impl CodeGenerator {
 
             },
             Ast::Type(_) => todo!(),
+            Ast::Extern(_) => (),
             Ast::IfStmt(_n) => {
 
                 //End positions is a vec containing all places where execution should jump to the end of the if..else chain.
@@ -350,7 +353,16 @@ impl CodeGenerator {
                 for c in &n.children {self.gen_code_rec(c.as_ref().borrow().deref(), code);}
                 self.vars.pop_scope();
             },
-            Ast::UnaryOperator(_) => todo!(),
+            Ast::UnaryOperator(n) => {
+                //get rhs in 0x1
+                self.gen_code_rec(n.operand.as_ref().borrow().deref(), code);
+                //get operator
+                let op = match n.op_type {
+                    UnaryOperatorTypes::Negate => Negate,
+                };
+
+                code.push(opcode!(op, 0x1, 0x0, 0x1));
+            },
             Ast::BinaryOperator(n) => {
                 //Get rhs in 0x1
                 self.gen_code_rec(n.right.as_ref().borrow().deref(), code);
@@ -383,37 +395,56 @@ impl CodeGenerator {
                 code.push(opcode!(op, 0x1, 0x1, 0x2));
             },
             Ast::Call(n) => {
-                //Save frame addr in x
-                code.push(opcode!(GetStackLen, 0x2));
-
-                //Push argument values to stack
-                for arg in &n.args {
-                    //Push frame addr to stack
-                    code.push(opcode!(Push, 0x2));
-                    //Generate arg value
-                    self.gen_code_rec(arg.as_ref().borrow().deref(), code);
-                    //Pop frame addr back into 0x2
-                    code.push(opcode!(Pop, 0x2));
-                    //Push arg value to stack
+                if let Type::External = n.ty.as_ref().borrow().get_node_type() {
+                    //Push arguments to stack
+                    for arg in &n.args {
+                        self.gen_code_rec(arg.as_ref().borrow().deref(), code);
+                        code.push(opcode!(Push, 0x1));
+                    }
+                    //Push number of args onto stack
+                    code.push(opcode!(LoadImm, 0x1));
+                    code.push(n.args.len() as u32);
                     code.push(opcode!(Push, 0x1));
+
+                    //Push the name of the function to 0x1
+                    code.push(opcode!(Load, 0x1));
+                    code.push(self.const_vals.len() as u32);
+                    self.const_vals.push(Value::String(Box::new(convert_node!(n.callee.as_ref().borrow().deref(), Identifier).token.lexeme.clone())));
+
+                    code.push(opcode!(CallExtern, 0x1));
                 }
+                else {
+                    //Save frame addr in x
+                    code.push(opcode!(GetStackLen, 0x2));
 
-                //Get address of function in 0x1
-                self.get_addr_and_locality(n.callee.as_ref().borrow().deref(), code);
+                    //Push argument values to stack
+                    for arg in &n.args {
+                        //Push frame addr to stack
+                        code.push(opcode!(Push, 0x2));
+                        //Generate arg value
+                        self.gen_code_rec(arg.as_ref().borrow().deref(), code);
+                        //Pop frame addr back into 0x2
+                        code.push(opcode!(Pop, 0x2));
+                        //Push arg value to stack
+                        code.push(opcode!(Push, 0x1));
+                    }
 
-                //Push frame
-                self.vars.push_frame();
-                code.push(opcode!(PushFrame, 0x2));
+                    //Get address of function in 0x1
+                    self.get_addr_and_locality(n.callee.as_ref().borrow().deref(), code);
 
-                //Call function
-                code.push(opcode!(Call, 0x1));
+                    //Push frame
+                    self.vars.push_frame();
+                    code.push(opcode!(PushFrame, 0x2));
 
-                //Return from frame
-                self.vars.pop_frame();
-                code.push(opcode!(PopFrame, 0x2));
-                //Clear stack
-                code.push(opcode!(SetStackLen, 0x2));
+                    //Call function
+                    code.push(opcode!(Call, 0x1));
 
+                    //Return from frame
+                    self.vars.pop_frame();
+                    code.push(opcode!(PopFrame, 0x2));
+                    //Clear stack
+                    code.push(opcode!(SetStackLen, 0x2));
+                }
             },
             Ast::Assign(n) => {
                 //Put value in 0x1
@@ -452,7 +483,7 @@ impl CodeGenerator {
             Ast::String(n) => {
                 //Load string into 0x1
                 code.push(opcode!(Load, 0x1));
-                //PUsh addr
+                //Push addr
                 code.push(self.const_vals.len() as u32);
                 self.const_vals.push(Value::String(Box::new(n.val.clone())));
             },
@@ -492,11 +523,6 @@ impl CodeGenerator {
             Ast::Return(n) => {
                self.gen_code_rec(n.elem.as_ref().borrow().deref(), code);
                code.push(opcode!(Return));
-            },
-            Ast::Print(n) => {
-                //Save print val in 0x1
-                self.gen_code_rec(n.node.as_ref().borrow().deref(), code);
-                code.push(opcode!(Print, 0x1));
             },
         }
     }

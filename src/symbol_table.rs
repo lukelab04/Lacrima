@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc, cell::RefCell};
 use std::ops::{DerefMut, Deref};
 use std::rc::Weak;
 
-use crate::{ast::*, lex::*, errors::*, types::*, convert_node};
+use crate::{ast::*, lex::*, errors::*, types::*, convert_node, ExternalFunctions};
 
 #[allow(dead_code)]
 pub struct SymbolTable {
@@ -58,12 +58,12 @@ impl SymbolTable {
         None
     }
 
-    pub fn build_table(&mut self, mut ast: Ast) -> Result<Ast, String> {
+    pub fn build_table(&mut self, mut ast: Ast, externs: &ExternalFunctions) -> Result<Ast, String> {
         ast = self.link_child_nodes(ast);
         let rc = Rc::new(RefCell::new(ast));
 
         let mut backtrack_nodes = vec![];
-        self.build_symbol_table(&rc, &mut backtrack_nodes)?;
+        self.build_symbol_table(&rc, &mut backtrack_nodes, externs)?;
 
         for n in &backtrack_nodes {self.validate_backtrack_nodes(n);}
 
@@ -73,25 +73,25 @@ impl SymbolTable {
         }
     }
 
-    fn build_symbol_table(&mut self, ast: &Rc<RefCell<Ast>>, backtrack_nodes: &mut Vec<Rc<RefCell<Ast>>>) -> Result<(), String>{
+    fn build_symbol_table(&mut self, ast: &Rc<RefCell<Ast>>, backtrack_nodes: &mut Vec<Rc<RefCell<Ast>>>, externs: &ExternalFunctions) -> Result<(), String>{
 
         match ast.as_ref().borrow_mut().deref_mut() {
             Ast::Start(n) => {
-                for c in &mut n.children { self.build_symbol_table(c, backtrack_nodes)?;}
+                for c in &mut n.children { self.build_symbol_table(c, backtrack_nodes, externs)?;}
             },
             Ast::IfStmt(n) => {
-                self.build_symbol_table(&n.condition, backtrack_nodes)?;
-                self.build_symbol_table(&n.block, backtrack_nodes)?;
-                if let Some(f) = n.follow.as_mut() {self.build_symbol_table(&f, backtrack_nodes)?}
+                self.build_symbol_table(&n.condition, backtrack_nodes, externs)?;
+                self.build_symbol_table(&n.block, backtrack_nodes, externs)?;
+                if let Some(f) = n.follow.as_mut() {self.build_symbol_table(&f, backtrack_nodes, externs)?}
             },
             Ast::WhileStmt(n) => {
-                self.build_symbol_table(&n.condition, backtrack_nodes)?;
-                self.build_symbol_table(&n.block, backtrack_nodes)?;
+                self.build_symbol_table(&n.condition, backtrack_nodes, externs)?;
+                self.build_symbol_table(&n.block, backtrack_nodes, externs)?;
             },
             Ast::Block(n) => {
                 self.push_scope();
-                self.build_symbol_table(&n.ty, backtrack_nodes)?;
-                for c in &mut n.children{self.build_symbol_table(&c, backtrack_nodes)?}
+                self.build_symbol_table(&n.ty, backtrack_nodes, externs)?;
+                for c in &mut n.children{self.build_symbol_table(&c, backtrack_nodes, externs)?}
                 self.pop_scope();
             },
             Ast::Identifier(n) => {
@@ -101,14 +101,11 @@ impl SymbolTable {
                 }
             },
             Ast::Boolean(_n) => {},
-            Ast::Print(n) => {
-                self.build_symbol_table(&n.node, backtrack_nodes)?;
-            },
             Ast::VarDecl(t) => {
                 let entry = SymbolTableEntry::new_ident(&convert_node!(t.iden.as_ref().borrow().deref(), Identifier).token, t.ty.borrow_mut().deref_mut());
                 self.add_entry(entry.get_token().lexeme.as_str(), Rc::new(RefCell::new(entry)))?;
-                self.build_symbol_table(&t.ty, backtrack_nodes)?;
-                if let Some(v) = &mut t.value {self.build_symbol_table(&v, backtrack_nodes)?;}
+                self.build_symbol_table(&t.ty, backtrack_nodes, externs)?;
+                if let Some(v) = &mut t.value {self.build_symbol_table(&v, backtrack_nodes, externs)?;}
             },
             Ast::Function(n) => {
                 let entry = SymbolTableEntry::new_ident(&convert_node!(n.iden.as_ref().borrow().deref(), Identifier).token, n.ty.as_ref().borrow_mut().deref_mut());
@@ -129,53 +126,71 @@ impl SymbolTable {
                     }
                 }
                 
-                self.build_symbol_table(&n.ty, backtrack_nodes)?;
-                self.build_symbol_table(&n.body, backtrack_nodes)?;
+                self.build_symbol_table(&n.ty, backtrack_nodes, externs)?;
+                self.build_symbol_table(&n.body, backtrack_nodes, externs)?;
                 self.pop_scope();
             }
+            Ast::Extern(n) => {
+                let tmp_stmt = n.stmt.as_ref().borrow();
+                let ident = &convert_node!(tmp_stmt.deref(), Identifier).token;
+
+                if !externs.functions.contains_key(&ident.lexeme) {
+                    return Err(basic_error(&format!("Extern function {} has not been registered.", ident.lexeme)));
+                }
+
+                let entry = SymbolTableEntry::new_ident(&ident, &Ast::Type(Type::External));
+
+                drop(tmp_stmt);
+
+                let _entry = self.add_entry(entry.get_token().lexeme.as_str(), Rc::new(RefCell::new(entry)))?;
+                if let Ast::Identifier(id) = n.stmt.as_ref().borrow_mut().deref_mut() {
+                    id.symbol_table_node = Some(_entry);
+                }
+            }
             Ast::Return(n) => {
-                self.build_symbol_table(&n.elem, backtrack_nodes)?;
+                self.build_symbol_table(&n.elem, backtrack_nodes, externs)?;
                 backtrack_nodes.push(ast.clone());
             }
             Ast::Type(t) => {
                 match t {
                     Type::Atomic(_) => (),
                     Type::Array(n) => {
-                        self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(n.elem_ty.as_ref().clone()))), backtrack_nodes)?
+                        self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(n.elem_ty.as_ref().clone()))), backtrack_nodes, externs)?
                     },
                     Type::Structural => todo!(),
+                    Type::External => (),
                     Type::Algebraic(n) => {
                         match n {
                             AlgebraicType::Tuple(t) => {
-                                for c in &mut t.types {self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(c.as_ref().borrow().clone()))), backtrack_nodes)?;}
+                                for c in &mut t.types {self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(c.as_ref().borrow().clone()))), backtrack_nodes, externs)?;}
                             }
                         }
                     },
                     Type::Functional(n) => {
                         let arg_type = n.arg_type.as_ref().clone();
                         let ret_type = n.ret_type.as_ref().clone();
-                        self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(arg_type))), backtrack_nodes)?;
-                        self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(ret_type))), backtrack_nodes)?;
+                        self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(arg_type))), backtrack_nodes, externs)?;
+                        self.build_symbol_table(&Rc::new(RefCell::new(Ast::Type(ret_type))), backtrack_nodes, externs)?;
                     },
                     Type::Inferred => (),
                     Type::EmptyType => (),
                 }
             },
             Ast::UnaryOperator(t) => {
-                self.build_symbol_table(&t.operand, backtrack_nodes)?;
+                self.build_symbol_table(&t.operand, backtrack_nodes, externs)?;
             },
             Ast::BinaryOperator(t) => {
-                self.build_symbol_table(&t.left, backtrack_nodes)?;
-                self.build_symbol_table(&t.right, backtrack_nodes)?;
+                self.build_symbol_table(&t.left, backtrack_nodes, externs)?;
+                self.build_symbol_table(&t.right, backtrack_nodes, externs)?;
             },
             Ast::Assign(n) => {
-                self.build_symbol_table(&n.left, backtrack_nodes)?;
-                self.build_symbol_table(&n.expr, backtrack_nodes)?;
+                self.build_symbol_table(&n.left, backtrack_nodes, externs)?;
+                self.build_symbol_table(&n.expr, backtrack_nodes, externs)?;
             }
             Ast::Call(n) => {
-                self.build_symbol_table(&n.callee, backtrack_nodes)?;
-                self.build_symbol_table(&n.ty, backtrack_nodes)?;
-                for c in &mut n.args {self.build_symbol_table(c, backtrack_nodes)?}
+                self.build_symbol_table(&n.callee, backtrack_nodes, externs)?;
+                self.build_symbol_table(&n.ty, backtrack_nodes, externs)?;
+                for c in &mut n.args {self.build_symbol_table(c, backtrack_nodes, externs)?}
             }
             Ast::Number(_) => (),
             Ast::String(_) => (),
@@ -205,6 +220,10 @@ impl SymbolTable {
                 for ch in &n.children {
                     self.link_ch_nodes_rec(ch.clone(), new_parent.clone());
                 }
+            }
+            Ast::Extern(n) => {
+                n.parent = p_weak;
+                self.link_ch_nodes_rec(n.stmt.clone(), new_parent.clone());
             }
             Ast::VarDecl(n) => {
                 n.parent = p_weak;
@@ -279,10 +298,6 @@ impl SymbolTable {
                     self.link_ch_nodes_rec(arg.1.clone(), new_parent.clone());
                 }
                 self.link_ch_nodes_rec(n.body.clone(), new_parent.clone());
-            }
-            Ast::Print(n) => {
-                n.parent = p_weak;
-                self.link_ch_nodes_rec(n.node.clone(), new_parent.clone());
             }
         }
     }

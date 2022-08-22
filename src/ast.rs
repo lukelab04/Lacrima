@@ -46,8 +46,7 @@ pub enum Ast {
     Number(Number),
     String(Str),
     Function(Function),
-
-    Print(Print),
+    Extern(Extern),
 }
 
 impl Ast {
@@ -88,11 +87,6 @@ impl Ast {
             Ast::Boolean(n) => {
                 println!("{}+- Boolean {}", s, n.val)
             }
-            Ast::Print(n) => {
-                println!("{}+- Print", s);
-                n.node.borrow().print(i + 1);
-            },
-
             Ast::Type(t) => {
                 println!("{}+- {}", s, t.get_type_as_str())
             },
@@ -127,6 +121,7 @@ impl Ast {
                 println!("{}+- Return", s);
                 n.elem.as_ref().borrow().print(i + 1);
             }
+            Ast::Extern(_) => (),
         }
     }
 
@@ -149,12 +144,12 @@ impl Ast {
             Ast::Assign(n) => n.ty.borrow().get_node_type(),
             Ast::Identifier(n) => n.symbol_table_node.as_ref().unwrap().borrow().get_type(),
             Ast::Boolean(n) => n.ty.as_ref().borrow().get_node_type(),
-            Ast::Print(_) => EmptyType,
             Ast::Number(n) => n.ty.as_ref().borrow().get_node_type(),
             Ast::String(n) => n.ty.as_ref().borrow().get_node_type(),
             Ast::Function(f) => f.ty.as_ref().borrow().get_node_type(),
             Ast::Call(n) => n.ty.as_ref().borrow().get_node_type(),
             Ast::Return(_) => EmptyType,
+            Ast::Extern(_) => EmptyType,
         }
     }
 
@@ -178,7 +173,7 @@ impl Ast {
             Ast::Number(n) => if let Some(p) = &n.parent {Some(p.clone())} else {None},
             Ast::String(n) => if let Some(p) = &n.parent {Some(p.clone())} else {None},
             Ast::Function(n) => if let Some(p) = &n.parent {Some(p.clone())} else {None},
-            Ast::Print(n) => if let Some(p) = &n.parent {Some(p.clone())} else {None},
+            Ast::Extern(n) => if let Some(p) = &n.parent {Some(p.clone())} else {None},
         }
     }
 }
@@ -186,6 +181,11 @@ impl Ast {
 pub struct Start {
     #[allow(clippy::vec_box)]
     pub children: Vec<Rc<RefCell<Ast>>>,
+}
+
+pub struct Extern {
+    pub parent: Option<Weak<RefCell<Ast>>>,
+    pub stmt: Rc<RefCell<Ast>>,
 }
 
 pub struct Block {
@@ -295,10 +295,4 @@ pub struct Assign {
     pub ty: Rc<RefCell<Ast>>,
     pub left: Rc<RefCell<Ast>>,
     pub expr: Rc<RefCell<Ast>>,
-}
-
-pub struct Print {
-    pub ty: Rc<RefCell<Ast>>,
-    pub node: Rc<RefCell<Ast>>,
-    pub parent: Option<Weak<RefCell<Ast>>>,
 }

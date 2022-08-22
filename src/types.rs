@@ -33,6 +33,7 @@ pub enum Type {
     Algebraic(AlgebraicType),
     Functional(FunctionType),
     Inferred,
+    External,
     EmptyType,
 }
 
@@ -47,6 +48,7 @@ impl Type {
             Type::Functional(n) => {
                 format!("{} -> {}", n.arg_type.get_type_as_str(), n.ret_type.get_type_as_str())
             }
+            Type::External => format!("External"),
             Type::Structural => format!("Structural"),
             Type::Algebraic(n) => match n {
                 AlgebraicType::Tuple(n) => {
@@ -76,6 +78,7 @@ impl Type {
                     n2.elements == n.elements && n2.elem_ty.is_equal(&n.elem_ty)
                 } else {false}
             }
+            Type::External => false,
             Type::Structural => todo!(),
             Type::Algebraic(n) => {
                 match n {

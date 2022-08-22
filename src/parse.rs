@@ -106,6 +106,7 @@ fn parse_start(p: &mut Parser) -> Result<Ast, String> {
         match tok.token_type {
             TokenType::Let => children.push(Rc::new(RefCell::new(parse_var_decl(p)?))),
             TokenType::Fn => children.push(Rc::new(RefCell::new(parse_fn_decl(p)?))),
+            TokenType::External => children.push(Rc::new(RefCell::new(parse_extern(p)?))),
             _ if p.prefix_map.contains_key(&tok.token_type) => children.push(Rc::new(RefCell::new(parse_expression_line(p, Prec::None)?))),
             _ if p.control_map.contains_key(&tok.token_type) => children.push(Rc::new(RefCell::new(parse_expression_line(p, Prec::None)?))),
             _ => {return Err(expected_but_got("Let or expression", &tok));},
@@ -205,6 +206,17 @@ pub fn parse_fn_decl(p: &mut Parser) -> Result<Ast, String> {
         body,
     }))
 }
+
+pub fn parse_extern(p: &mut Parser) -> Result<Ast, String> {
+    p.accept(TokenType::External)?;
+    let ext = Ok(Ast::Extern(Extern{
+        parent: None,
+        stmt: Rc::new(RefCell::new(parse_identifier(p)?)),
+    }));
+    p.accept(TokenType::Semicolon)?;
+    ext
+}
+
 
 fn parse_expression_line(p: &mut Parser, prec: Prec) -> Result<Ast, String> {
     let res = parse_expression(p, prec)?;
@@ -470,7 +482,7 @@ pub fn parse_call(p: &mut Parser, left: Ast) -> Result<Ast, String> {
         token: tok,
         callee: Rc::new(RefCell::new(left)),
         args,
-        ty: Rc::new(RefCell::new(Ast::Type(Type::EmptyType)))
+        ty: Rc::new(RefCell::new(Ast::Type(Type::External)))
     }))
 }
 
@@ -490,17 +502,6 @@ pub fn parse_paren_group(p: &mut Parser) -> Result<Ast, String> {
     let interior = parse_expression(p, Prec::None)?;
     p.accept(TokenType::RParen)?;
     Ok(interior)
-}
-
-pub fn parse_print(p: &mut Parser) -> Result<Ast, String> {
-    p.accept(TokenType::Print)?;
-    Ok(Ast::Print(
-        Print {
-            parent: None,
-            node: Rc::new(RefCell::new(parse_expression(p, Prec::None)?)),
-            ty: Rc::new(RefCell::new(Ast::Type(Type::EmptyType))),
-        }
-    ))
 }
 
 pub fn parse_type(p: &mut Parser) -> Result<Ast, String> {
