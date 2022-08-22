@@ -148,3 +148,13 @@ fn main() {
 }
 ```
 This is a complete hello world example.
+```
+external print;
+
+fn fib(n: num) -> num {
+  if n <= 1 {return n;};
+  return fib(n - 1) + fib(n - 2);
+}
+print(fib(10)); //55
+```
+This is a fibonacci sequence, written only with Lacrima.
